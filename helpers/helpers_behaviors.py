@@ -15,7 +15,12 @@ missing, the robot is commanded to stop rather than continue blind.
 import math
 import time
 
-import ssl_simulation_robot_control_pb2 as control
+try:
+    import ssl_simulation_robot_control_pb2 as control
+except ImportError:
+    control = None
+
+from .helpers_geometry import angle_error, bearing_to, distance_to
 
 # Control loop
 CONTROL_PERIOD_S = 0.02
@@ -48,7 +53,7 @@ BALL_MOVED_M = 0.10      # ball displacement that counts as kicked
 
 def _wrap(angle):
     """Wrap an angle to [-pi, pi]."""
-    return math.atan2(math.sin(angle), math.cos(angle))
+    return angle_error(angle, 0.0)
 
 
 def _clamp(value, limit):
@@ -63,6 +68,8 @@ def _check_positive(name, value):
 def _send(sock, endpoint, robot_id, vx=0.0, vy=0.0, w=0.0, *,
           kick_speed=0.0, kick_angle=0.0, dribbler_rpm=0.0):
     """Send one full command: global velocity plus kicker and dribbler."""
+    if control is None:
+        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     command = message.robot_commands.add(id=robot_id)
     velocity = command.move_command.global_velocity
@@ -102,13 +109,7 @@ def _drive_command(pose, x, y, heading, *, max_speed=MAX_SPEED_MPS,
 
 def _run(sock, endpoint, robot_id, deadline, step, *,
          settle_cycles=SETTLE_CYCLES, stop=True):
-    """Call step() every period until it reports success or the deadline.
-
-    step() returns (command, ok): command is a dict of _send kwargs, or None
-    to stop this cycle; ok means the goal is met this cycle. Success needs
-    `settle_cycles` consecutive ok cycles. The robot is always stopped on
-    an exception; on normal exit only when stop=True.
-    """
+    """Call step() every period until it reports success or the deadline."""
     settled = 0
     next_tick = time.monotonic()
     try:
@@ -146,7 +147,23 @@ def rotate_to(
     sock, endpoint, robot_id, get_pose, *,
     heading_rad, tolerance_rad=0.05, timeout_s=5.0,
 ):
-    """Rotate to a target heading using feedback."""
+    """Rotate to a target heading using feedback.
+
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        heading_rad (float): Target orientation in radians.
+        tolerance_rad (float, optional): Acceptable error in radians. Default is 0.05 rad.
+        timeout_s (float, optional): Maximum execution seconds. Default is 5.0s.
+
+    Outputs:
+        bool: True if heading reached within tolerance, False on timeout.
+
+    Example:
+        >>> rotate_to(sock, endpoint, 0, get_pose, heading_rad=math.pi / 2)
+    """
     _check_positive("tolerance_rad", tolerance_rad)
     _check_positive("timeout_s", timeout_s)
 
@@ -165,7 +182,23 @@ def face_point(
     sock, endpoint, robot_id, get_pose, *,
     x_m, y_m, timeout_s=5.0,
 ):
-    """Rotate toward a field position."""
+    """Rotate toward a field position.
+
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        x_m (float): Target X coordinate in metres.
+        y_m (float): Target Y coordinate in metres.
+        timeout_s (float, optional): Maximum execution seconds. Default is 5.0s.
+
+    Outputs:
+        bool: True if aimed within HEADING_TOLERANCE_RAD, False on timeout.
+
+    Example:
+        >>> face_point(sock, endpoint, 0, get_pose, x_m=0.0, y_m=0.0)
+    """
     _check_positive("timeout_s", timeout_s)
 
     def step():
@@ -188,8 +221,21 @@ def hold_pose(
 ):
     """Maintain a pose for a bounded duration.
 
-    Returns True if the robot was within POSITION_TOLERANCE_M and
-    HEADING_TOLERANCE_RAD of the pose at the end of the duration.
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        x_m (float): Target X position in metres.
+        y_m (float): Target Y position in metres.
+        heading_rad (float): Target orientation in radians.
+        duration_s (float): Seconds to maintain position against disturbances.
+
+    Outputs:
+        bool: True if within tolerance at the end of the duration.
+
+    Example:
+        >>> hold_pose(sock, endpoint, 0, get_pose, x_m=1.0, y_m=0.0, heading_rad=0.0, duration_s=2.0)
     """
     _check_positive("duration_s", duration_s)
     in_tolerance = False
@@ -215,9 +261,21 @@ def follow_waypoints(
 ):
     """Visit (x, y) targets within an overall deadline.
 
-    The heading is held at whatever it was when the first pose arrived.
-    The robot keeps full speed through intermediate waypoints and slows
-    down only for the last one.
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        waypoints (list[tuple[float, float]]): Series of (x, y) target coordinates.
+        tolerance_m (float, optional): Distance threshold for waypoints. Default is 0.05m.
+        timeout_s (float, optional): Overall deadline in seconds. Default is 30.0s.
+
+    Outputs:
+        bool: True if all waypoints were reached before expiry.
+
+    Example:
+        >>> pts = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        >>> follow_waypoints(sock, endpoint, 0, get_pose, waypoints=pts)
     """
     waypoints = [(float(x), float(y)) for x, y in waypoints]
     if not waypoints:
@@ -266,12 +324,20 @@ def approach_ball(
 ):
     """Approach the ball from a specified direction.
 
-    approach_heading_rad is the direction the robot faces and travels when
-    it meets the ball (the direction a kick would send it). The robot first
-    goes to a staging point STAGING_DIST_M behind the ball, detouring
-    around the ball if needed, then creeps in until its kicker face touches
-    the ball. Targets are recomputed every cycle, so a slowly rolling ball
-    is tracked.
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        get_ball (callable): Returns (x_m, y_m) or None.
+        approach_heading_rad (float): Direction the robot faces and travels when contacting the ball.
+        timeout_s (float, optional): Maximum execution seconds. Default is 10.0s.
+
+    Outputs:
+        bool: True if robot positioned at the ball kicker face, False on timeout.
+
+    Example:
+        >>> approach_ball(sock, endpoint, 0, get_pose, get_ball, approach_heading_rad=0.0)
     """
     _check_positive("timeout_s", timeout_s)
     dx, dy = math.cos(approach_heading_rad), math.sin(approach_heading_rad)
@@ -294,9 +360,6 @@ def approach_ball(
         if phase == "stage":
             sx, sy = bx - dx * STAGING_DIST_M, by - dy * STAGING_DIST_M
             tx, ty = sx, sy
-            # Path to staging passes too close to the ball: go round it via a
-            # point beside and slightly behind the ball. The 0.8 factor gives
-            # hysteresis so the robot can leave the detour point.
             if _segment_distance(bx, by, px, py, sx, sy) < 0.8 * CLEARANCE_M:
                 side = 1.0 if lateral >= 0 else -1.0
                 tx = bx + side * nx * CLEARANCE_M - dx * 0.5 * CLEARANCE_M
@@ -324,8 +387,23 @@ def pass_to(
 ):
     """Coordinate positioning, aiming, and a kick request.
 
-    Returns True once the ball has moved BALL_MOVED_M after the kick
-    request. That confirms a kick, not that the ball reaches the target.
+    Inputs:
+        sock (socket.socket): UDP command socket.
+        endpoint (tuple[str, int]): Target team address tuple.
+        robot_id (int): Non-negative robot ID.
+        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
+        get_ball (callable): Returns (x_m, y_m) or None.
+        target_x_m (float): Destination X coordinate in metres.
+        target_y_m (float): Destination Y coordinate in metres.
+        kick_speed_mps (float): Kick velocity in (0, 10.0] m/s.
+        timeout_s (float, optional): Maximum execution seconds. Default is 10.0s.
+
+    Outputs:
+        bool: True once ball displacement confirms a kick, False on timeout.
+
+    Example:
+        >>> pass_to(sock, endpoint, 0, get_pose, get_ball,
+        ...         target_x_m=2.0, target_y_m=0.0, kick_speed_mps=4.0)
     """
     if not math.isfinite(kick_speed_mps) or not 0 < kick_speed_mps <= MAX_KICK_SPEED_MPS:
         raise ValueError(
