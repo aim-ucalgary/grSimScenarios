@@ -16,13 +16,9 @@ except ImportError:
     gc_common = None
 
 
-def _check_robot_id(robot_id):
+def _set_robot_id(robot_id_msg, team, robot_id):
     if isinstance(robot_id, bool) or not isinstance(robot_id, int) or robot_id < 0:
         raise ValueError(f"robot_id must be a non-negative int, got {robot_id!r}")
-
-
-def _set_robot_id(robot_id_msg, team, robot_id):
-    _check_robot_id(robot_id)
     robot_id_msg.id = robot_id
     team_name = team.strip().lower()
     field = "team" if hasattr(robot_id_msg, "team") else "team_color"

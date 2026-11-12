@@ -51,17 +51,8 @@ BALL_MOVED_M = 0.10      # ball displacement that counts as kicked
 
 # ---------------------------------------------------------------- utilities
 
-def _wrap(angle):
-    """Wrap an angle to [-pi, pi]."""
-    return angle_error(angle, 0.0)
-
-
-def _clamp(value, limit):
-    return max(-limit, min(limit, value))
-
-
 def _check_positive(name, value):
-    if not math.isfinite(value) or value <= 0:
+    if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
         raise ValueError(f"{name} must be a positive number, got {value!r}")
 
 
@@ -82,10 +73,6 @@ def _send(sock, endpoint, robot_id, vx=0.0, vy=0.0, w=0.0, *,
     sock.sendto(message.SerializeToString(), endpoint)
 
 
-def _stop(sock, endpoint, robot_id):
-    _send(sock, endpoint, robot_id)
-
-
 def _drive_command(pose, x, y, heading, *, max_speed=MAX_SPEED_MPS,
                    slow_down=True):
     """P-controller toward (x, y, heading).
@@ -102,8 +89,8 @@ def _drive_command(pose, x, y, heading, *, max_speed=MAX_SPEED_MPS,
         vx, vy = ex / dist * speed, ey / dist * speed
     else:
         vx = vy = 0.0
-    heading_err = _wrap(heading - ph)
-    w = _clamp(KP_ANGULAR * heading_err, MAX_ANGULAR_RADPS)
+    heading_err = angle_error(heading, ph)
+    w = max(-MAX_ANGULAR_RADPS, min(MAX_ANGULAR_RADPS, KP_ANGULAR * heading_err))
     return {"vx": vx, "vy": vy, "w": w}, dist, abs(heading_err)
 
 
@@ -116,7 +103,7 @@ def _run(sock, endpoint, robot_id, deadline, step, *,
         while time.monotonic() < deadline:
             command, ok = step()
             if command is None:
-                _stop(sock, endpoint, robot_id)
+                _send(sock, endpoint, robot_id)
             else:
                 _send(sock, endpoint, robot_id, **command)
 
@@ -134,10 +121,10 @@ def _run(sock, endpoint, robot_id, deadline, step, *,
         else:
             result = False
     except BaseException:
-        _stop(sock, endpoint, robot_id)
+        _send(sock, endpoint, robot_id)
         raise
     if stop:
-        _stop(sock, endpoint, robot_id)
+        _send(sock, endpoint, robot_id)
     return result
 
 
@@ -171,8 +158,8 @@ def rotate_to(
         pose = get_pose()
         if pose is None:
             return None, False
-        err = _wrap(heading_rad - pose[2])
-        w = _clamp(KP_ANGULAR * err, MAX_ANGULAR_RADPS)
+        err = angle_error(heading_rad, pose[2])
+        w = max(-MAX_ANGULAR_RADPS, min(MAX_ANGULAR_RADPS, KP_ANGULAR * err))
         return {"w": w}, abs(err) <= tolerance_rad
 
     return _run(sock, endpoint, robot_id, time.monotonic() + timeout_s, step)
@@ -208,8 +195,8 @@ def face_point(
         px, py, ph = pose
         if math.hypot(x_m - px, y_m - py) < 1e-3:
             return None, True  # standing on the point: any heading faces it
-        err = _wrap(math.atan2(y_m - py, x_m - px) - ph)
-        w = _clamp(KP_ANGULAR * err, MAX_ANGULAR_RADPS)
+        err = angle_error(bearing_to((px, py), (x_m, y_m)), ph)
+        w = max(-MAX_ANGULAR_RADPS, min(MAX_ANGULAR_RADPS, KP_ANGULAR * err))
         return {"w": w}, abs(err) <= HEADING_TOLERANCE_RAD
 
     return _run(sock, endpoint, robot_id, time.monotonic() + timeout_s, step)
@@ -304,7 +291,7 @@ def follow_waypoints(
             sock, endpoint, robot_id, deadline, step,
             settle_cycles=SETTLE_CYCLES if last else 1, stop=last)
         if not reached:
-            _stop(sock, endpoint, robot_id)
+            _send(sock, endpoint, robot_id)
             return False
     return True
 
@@ -432,7 +419,7 @@ def pass_to(
         pose, ball = get_pose(), get_ball()
         if pose is None:
             return None, False
-        w = _clamp(KP_ANGULAR * _wrap(heading - pose[2]), MAX_ANGULAR_RADPS)
+        w = max(-MAX_ANGULAR_RADPS, min(MAX_ANGULAR_RADPS, KP_ANGULAR * angle_error(heading, pose[2])))
         command = {
             "vx": KICK_PUSH_MPS * math.cos(heading),
             "vy": KICK_PUSH_MPS * math.sin(heading),

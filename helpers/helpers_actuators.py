@@ -18,15 +18,11 @@ MAX_KICK_SPEED_MPS = 10.0
 MAX_KICK_ANGLE_DEG = 90.0
 
 
-def _check_robot_id(robot_id):
-    if isinstance(robot_id, bool) or not isinstance(robot_id, int) or robot_id < 0:
-        raise ValueError(f"robot_id must be a non-negative int, got {robot_id!r}")
-
-
 def _send(sock, endpoint, robot_id, *, kick_speed=0.0, kick_angle=0.0,
           dribbler_speed=0.0):
     """Build a single-robot RobotControl message and send it as one datagram."""
-    _check_robot_id(robot_id)
+    if isinstance(robot_id, bool) or not isinstance(robot_id, int) or robot_id < 0:
+        raise ValueError(f"robot_id must be a non-negative int, got {robot_id!r}")
     if control is None:
         raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
