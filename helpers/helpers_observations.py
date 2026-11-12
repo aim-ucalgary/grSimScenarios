@@ -12,10 +12,7 @@ from .helpers_geometry import angle_error
 try:
     import messages_robocup_ssl_wrapper_pb2 as ssl_wrapper
 except ImportError:
-    try:
-        import ssl_vision_wrapper_pb2 as ssl_wrapper
-    except ImportError:
-        ssl_wrapper = None
+    import ssl_vision_wrapper_pb2 as ssl_wrapper
 
 
 def _check_robot_id(robot_id):
@@ -58,8 +55,6 @@ def read_vision(sock, *, timeout_s=1.0):
     Example:
         >>> packet = read_vision(vision_sock, timeout_s=0.5)
     """
-    if ssl_wrapper is None:
-        raise RuntimeError("No vision protobuf module found")
     _check_positive("timeout_s", timeout_s)
     sock.settimeout(float(timeout_s))
     data, _ = sock.recvfrom(65535)

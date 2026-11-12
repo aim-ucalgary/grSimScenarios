@@ -7,12 +7,9 @@ Send functions send once; duration-based functions block.
 import math
 import time
 
-from .helpers_communication import send_commands
+import ssl_simulation_robot_control_pb2 as control
 
-try:
-    import ssl_simulation_robot_control_pb2 as control
-except ImportError:
-    control = None
+from .helpers_communication import send_commands
 
 
 def _check_robot_id(robot_id):
@@ -47,8 +44,6 @@ def send_global_velocity(
         >>> send_global_velocity(sock, ("127.0.0.1", 10301), 0, vx_mps=0.5, vy_mps=0.0)
     """
     _check_robot_id(robot_id)
-    if control is None:
-        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     cmd = message.robot_commands.add(id=robot_id)
     cmd.move_command.global_velocity.x = float(vx_mps)
@@ -79,8 +74,6 @@ def send_local_velocity(
         >>> send_local_velocity(sock, ("127.0.0.1", 10301), 0, forward_mps=1.0, left_mps=0.0)
     """
     _check_robot_id(robot_id)
-    if control is None:
-        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     cmd = message.robot_commands.add(id=robot_id)
     cmd.move_command.local_velocity.forward = float(forward_mps)
@@ -214,8 +207,6 @@ def stop_robots(sock, endpoint, robot_ids, *, repeat_for_s=0.25, rate_hz=50.0):
     dt = 1.0 / rate_hz
     end_time = time.monotonic() + repeat_for_s
     while time.monotonic() < end_time:
-        if control is None:
-            raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
         message = control.RobotControl()
         for rid in robot_ids:
             _check_robot_id(rid)

@@ -5,15 +5,8 @@ Positions: metres. Heading: radians. Team: 'blue' or 'yellow'.
 
 import math
 
-try:
-    import ssl_simulation_control_pb2 as sim_control
-except ImportError:
-    sim_control = None
-
-try:
-    import ssl_gc_common_pb2 as gc_common
-except ImportError:
-    gc_common = None
+import ssl_simulation_control_pb2 as sim_control
+import ssl_gc_common_pb2 as gc_common
 
 
 def _set_robot_id(robot_id_msg, team, robot_id):
@@ -57,8 +50,6 @@ def teleport_robot(
         >>> teleport_robot(sock, ("127.0.0.1", 10300), "blue", 0,
         ...                x_m=-1.5, y_m=0.0, heading_rad=0.0)
     """
-    if sim_control is None:
-        raise RuntimeError("ssl_simulation_control_pb2 is not available")
     cmd = sim_control.SimulatorCommand()
     teleport = cmd.control.teleport_robot.add()
     _set_robot_id(teleport.id, team, robot_id)
@@ -95,8 +86,6 @@ def teleport_ball(
         >>> # Teleport ball to field center at rest:
         >>> teleport_ball(sock, ("127.0.0.1", 10300), x_m=0.0, y_m=0.0)
     """
-    if sim_control is None:
-        raise RuntimeError("ssl_simulation_control_pb2 is not available")
     cmd = sim_control.SimulatorCommand()
     teleport = cmd.control.teleport_ball
     teleport.x = float(x_m)
@@ -125,8 +114,6 @@ def set_robot_present(sock, endpoint, team, robot_id, *, present):
         >>> # Despawn yellow robot 5:
         >>> set_robot_present(sock, ("127.0.0.1", 10300), "yellow", 5, present=False)
     """
-    if sim_control is None:
-        raise RuntimeError("ssl_simulation_control_pb2 is not available")
     cmd = sim_control.SimulatorCommand()
     teleport = cmd.control.teleport_robot.add()
     _set_robot_id(teleport.id, team, robot_id)

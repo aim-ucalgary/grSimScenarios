@@ -15,10 +15,7 @@ missing, the robot is commanded to stop rather than continue blind.
 import math
 import time
 
-try:
-    import ssl_simulation_robot_control_pb2 as control
-except ImportError:
-    control = None
+import ssl_simulation_robot_control_pb2 as control
 
 from .helpers_communication import send_commands
 from .helpers_geometry import angle_error, bearing_to, distance_to
@@ -60,8 +57,6 @@ def _check_positive(name, value):
 def _send(sock, endpoint, robot_id, vx=0.0, vy=0.0, w=0.0, *,
           kick_speed=0.0, kick_angle=0.0, dribbler_rpm=0.0):
     """Send one full command: global velocity plus kicker and dribbler."""
-    if control is None:
-        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     command = message.robot_commands.add(id=robot_id)
     velocity = command.move_command.global_velocity

@@ -6,15 +6,8 @@ Sockets are created explicitly, never during import.
 
 import socket
 
-try:
-    import ssl_simulation_robot_control_pb2 as control
-except ImportError:
-    control = None
-
-try:
-    import ssl_simulation_robot_feedback_pb2 as feedback_pb
-except ImportError:
-    feedback_pb = None
+import ssl_simulation_robot_control_pb2 as control
+import ssl_simulation_robot_feedback_pb2 as feedback_pb
 
 
 def open_socket(*, timeout_s=1.0):
@@ -84,8 +77,6 @@ def send_commands(sock, endpoint, commands):
     elif hasattr(commands, "SerializeToString"):
         payload = commands.SerializeToString()
     else:
-        if control is None:
-            raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
         message = control.RobotControl()
         for cmd in commands:
             if isinstance(cmd, dict):
@@ -122,8 +113,6 @@ def read_feedback(sock, *, timeout_s=1.0):
     except (socket.timeout, TimeoutError) as e:
         raise TimeoutError(f"read_feedback timed out after {timeout_s}s") from e
 
-    if feedback_pb is None:
-        raise RuntimeError("ssl_simulation_robot_feedback_pb2 is not available")
 
     response = feedback_pb.RobotControlResponse()
     response.ParseFromString(data)

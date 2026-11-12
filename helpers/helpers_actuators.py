@@ -5,12 +5,9 @@ Kick speed: m/s. Kick elevation: degrees.
 
 import math
 
-from .helpers_communication import send_commands
+import ssl_simulation_robot_control_pb2 as control
 
-try:
-    import ssl_simulation_robot_control_pb2 as control
-except ImportError:
-    control = None
+from .helpers_communication import send_commands
 
 # grSim treats any positive dribbler speed as "on"; the value is in rpm.
 DRIBBLER_ON_RPM = 1000.0
@@ -25,8 +22,6 @@ def _send(sock, endpoint, robot_id, *, kick_speed=0.0, kick_angle=0.0,
     """Build a single-robot RobotControl message and send it as one datagram."""
     if isinstance(robot_id, bool) or not isinstance(robot_id, int) or robot_id < 0:
         raise ValueError(f"robot_id must be a non-negative int, got {robot_id!r}")
-    if control is None:
-        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     command = message.robot_commands.add(id=robot_id)
     command.kick_speed = kick_speed
