@@ -5,6 +5,8 @@ Kick speed: m/s. Kick elevation: degrees.
 
 import math
 
+from .helpers_communication import send_commands
+
 try:
     import ssl_simulation_robot_control_pb2 as control
 except ImportError:
@@ -30,7 +32,7 @@ def _send(sock, endpoint, robot_id, *, kick_speed=0.0, kick_angle=0.0,
     command.kick_speed = kick_speed
     command.kick_angle = kick_angle
     command.dribbler_speed = dribbler_speed
-    sock.sendto(message.SerializeToString(), endpoint)
+    send_commands(sock, endpoint, message)
 
 
 def kick(sock, endpoint, robot_id, *, speed_mps, angle_deg=0.0):

@@ -20,6 +20,7 @@ try:
 except ImportError:
     control = None
 
+from .helpers_communication import send_commands
 from .helpers_geometry import angle_error, bearing_to, distance_to
 
 # Control loop
@@ -70,7 +71,7 @@ def _send(sock, endpoint, robot_id, vx=0.0, vy=0.0, w=0.0, *,
     command.kick_speed = kick_speed
     command.kick_angle = kick_angle
     command.dribbler_speed = dribbler_rpm
-    sock.sendto(message.SerializeToString(), endpoint)
+    send_commands(sock, endpoint, message)
 
 
 def _drive_command(pose, x, y, heading, *, max_speed=MAX_SPEED_MPS,

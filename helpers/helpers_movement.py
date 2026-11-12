@@ -7,6 +7,8 @@ Send functions send once; duration-based functions block.
 import math
 import time
 
+from .helpers_communication import send_commands
+
 try:
     import ssl_simulation_robot_control_pb2 as control
 except ImportError:
@@ -52,7 +54,7 @@ def send_global_velocity(
     cmd.move_command.global_velocity.x = float(vx_mps)
     cmd.move_command.global_velocity.y = float(vy_mps)
     cmd.move_command.global_velocity.angular = float(omega_radps)
-    sock.sendto(message.SerializeToString(), endpoint)
+    send_commands(sock, endpoint, message)
 
 
 def send_local_velocity(
@@ -84,7 +86,7 @@ def send_local_velocity(
     cmd.move_command.local_velocity.forward = float(forward_mps)
     cmd.move_command.local_velocity.left = float(left_mps)
     cmd.move_command.local_velocity.angular = float(omega_radps)
-    sock.sendto(message.SerializeToString(), endpoint)
+    send_commands(sock, endpoint, message)
 
 
 def hold_velocity(
@@ -221,5 +223,5 @@ def stop_robots(sock, endpoint, robot_ids, *, repeat_for_s=0.25, rate_hz=50.0):
             cmd.move_command.global_velocity.x = 0.0
             cmd.move_command.global_velocity.y = 0.0
             cmd.move_command.global_velocity.angular = 0.0
-        sock.sendto(message.SerializeToString(), endpoint)
+        send_commands(sock, endpoint, message)
         time.sleep(dt)

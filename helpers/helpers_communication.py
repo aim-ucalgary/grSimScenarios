@@ -38,6 +38,26 @@ def open_socket(*, timeout_s=1.0):
     return sock
 
 
+def _populate_robot_command(robot, cmd):
+    """Populate a RobotCommand protobuf message from a dictionary."""
+    if "global_velocity" in cmd:
+        gv = cmd["global_velocity"]
+        robot.move_command.global_velocity.x = float(gv.get("x", 0.0))
+        robot.move_command.global_velocity.y = float(gv.get("y", 0.0))
+        robot.move_command.global_velocity.angular = float(gv.get("angular", 0.0))
+    if "local_velocity" in cmd:
+        lv = cmd["local_velocity"]
+        robot.move_command.local_velocity.forward = float(lv.get("forward", 0.0))
+        robot.move_command.local_velocity.left = float(lv.get("left", 0.0))
+        robot.move_command.local_velocity.angular = float(lv.get("angular", 0.0))
+    if "kick_speed" in cmd:
+        robot.kick_speed = float(cmd["kick_speed"])
+    if "kick_angle" in cmd:
+        robot.kick_angle = float(cmd["kick_angle"])
+    if "dribbler_speed" in cmd:
+        robot.dribbler_speed = float(cmd["dribbler_speed"])
+
+
 def send_commands(sock, endpoint, commands):
     """Send one team's commands as a RobotControl message.
 
@@ -70,22 +90,7 @@ def send_commands(sock, endpoint, commands):
         for cmd in commands:
             if isinstance(cmd, dict):
                 robot = message.robot_commands.add(id=int(cmd["id"]))
-                if "global_velocity" in cmd:
-                    gv = cmd["global_velocity"]
-                    robot.move_command.global_velocity.x = float(gv.get("x", 0.0))
-                    robot.move_command.global_velocity.y = float(gv.get("y", 0.0))
-                    robot.move_command.global_velocity.angular = float(gv.get("angular", 0.0))
-                if "local_velocity" in cmd:
-                    lv = cmd["local_velocity"]
-                    robot.move_command.local_velocity.forward = float(lv.get("forward", 0.0))
-                    robot.move_command.local_velocity.left = float(lv.get("left", 0.0))
-                    robot.move_command.local_velocity.angular = float(lv.get("angular", 0.0))
-                if "kick_speed" in cmd:
-                    robot.kick_speed = float(cmd["kick_speed"])
-                if "kick_angle" in cmd:
-                    robot.kick_angle = float(cmd["kick_angle"])
-                if "dribbler_speed" in cmd:
-                    robot.dribbler_speed = float(cmd["dribbler_speed"])
+                _populate_robot_command(robot, cmd)
             else:
                 message.robot_commands.add().CopyFrom(cmd)
         payload = message.SerializeToString()
