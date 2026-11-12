@@ -10,6 +10,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+# Mock protobuf modules for offline unit testing if not present in the environment
+from unittest.mock import MagicMock
+for _mod in [
+    "ssl_simulation_robot_control_pb2",
+    "ssl_simulation_robot_feedback_pb2",
+    "ssl_simulation_control_pb2",
+    "ssl_gc_common_pb2",
+    "ssl_vision_wrapper_pb2",
+    "messages_robocup_ssl_wrapper_pb2",
+]:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
 import helpers
 
 
