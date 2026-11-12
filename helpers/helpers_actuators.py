@@ -5,7 +5,10 @@ Kick speed: m/s. Kick elevation: degrees.
 
 import math
 
-import ssl_simulation_robot_control_pb2 as control
+try:
+    import ssl_simulation_robot_control_pb2 as control
+except ImportError:
+    control = None
 
 # grSim treats any positive dribbler speed as "on"; the value is in rpm.
 DRIBBLER_ON_RPM = 1000.0
@@ -24,6 +27,8 @@ def _send(sock, endpoint, robot_id, *, kick_speed=0.0, kick_angle=0.0,
           dribbler_speed=0.0):
     """Build a single-robot RobotControl message and send it as one datagram."""
     _check_robot_id(robot_id)
+    if control is None:
+        raise RuntimeError("ssl_simulation_robot_control_pb2 is not available")
     message = control.RobotControl()
     command = message.robot_commands.add(id=robot_id)
     command.kick_speed = kick_speed
@@ -33,7 +38,25 @@ def _send(sock, endpoint, robot_id, *, kick_speed=0.0, kick_angle=0.0,
 
 
 def kick(sock, endpoint, robot_id, *, speed_mps, angle_deg=0.0):
-    """Send one kick request; delivery and ball contact are not guaranteed."""
+    """Send one kick request; delivery and ball contact are not guaranteed.
+
+    Inputs:
+        sock (socket.socket): UDP socket for command transmission.
+        endpoint (tuple[str, int]): Target (host, port) tuple (e.g. ("127.0.0.1", 10301)).
+        robot_id (int): Non-negative robot ID.
+        speed_mps (float): Desired ball speed in m/s (0 < speed_mps <= 10.0).
+        angle_deg (float, optional): Kick elevation angle in degrees (0.0 <= angle_deg <= 90.0).
+            Default is 0.0 (flat kick).
+
+    Outputs:
+        None
+
+    Example:
+        >>> # Send a flat 4.5 m/s kick command to blue robot 0:
+        >>> kick(sock, ("127.0.0.1", 10301), 0, speed_mps=4.5)
+        >>> # Send a chipped shot with 30-degree elevation:
+        >>> kick(sock, ("127.0.0.1", 10301), 0, speed_mps=3.0, angle_deg=30.0)
+    """
     speed_mps = float(speed_mps)
     angle_deg = float(angle_deg)
     if not math.isfinite(speed_mps) or not 0.0 < speed_mps <= MAX_KICK_SPEED_MPS:
@@ -46,11 +69,36 @@ def kick(sock, endpoint, robot_id, *, speed_mps, angle_deg=0.0):
 
 
 def set_dribbler(sock, endpoint, robot_id, *, enabled):
-    """Enable or disable the dribbler."""
+    """Enable or disable the dribbler.
+
+    Inputs:
+        sock (socket.socket): UDP socket for command transmission.
+        endpoint (tuple[str, int]): Target (host, port) tuple.
+        robot_id (int): Non-negative robot ID.
+        enabled (bool): True to activate dribbler roller, False to stop it.
+
+    Outputs:
+        None
+
+    Example:
+        >>> set_dribbler(sock, ("127.0.0.1", 10301), 0, enabled=True)
+    """
     _send(sock, endpoint, robot_id,
           dribbler_speed=DRIBBLER_ON_RPM if enabled else 0.0)
 
 
 def disable_actuators(sock, endpoint, robot_id):
-    """Send zero kick/dribbler settings; cannot undo an executed kick."""
+    """Send zero kick/dribbler settings; cannot undo an executed kick.
+
+    Inputs:
+        sock (socket.socket): UDP socket for command transmission.
+        endpoint (tuple[str, int]): Target (host, port) tuple.
+        robot_id (int): Non-negative robot ID.
+
+    Outputs:
+        None
+
+    Example:
+        >>> disable_actuators(sock, ("127.0.0.1", 10301), 0)
+    """
     _send(sock, endpoint, robot_id)
