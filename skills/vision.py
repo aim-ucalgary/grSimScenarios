@@ -1,10 +1,10 @@
-"""Vision feedback for live runs: turns grSim's vision stream into a get_pose() callable."""
+"""Vision feedback for live runs: turns grSim's vision stream into get_pose()/get_ball()."""
 
 import socket
 import struct
 import time
 
-from ._compat import load
+from helpers import observations as obs
 
 
 def open_vision_socket(group="224.5.23.2", port=10020):
@@ -16,26 +16,56 @@ def open_vision_socket(group="224.5.23.2", port=10020):
     return sock
 
 
-def make_pose_getter(vision_sock, team, robot_id, max_age_s=0.2):
-    """Return get_pose() -> (x_m, y_m, heading_rad) or None when vision is stale."""
-    obs = load("observations")
-    last = {"pose": None, "t": 0.0}
+class VisionTracker:
+    """Reads one vision socket and serves both robot pose and ball position.
 
-    def get_pose():
-        # Drain everything queued; keep the newest packet that contains the robot.
-        while True:
+    Use one tracker per socket: two getters reading the same socket would
+    steal packets from each other. Freshness is tracked here because the
+    packet's t_capture is wall-clock time, not time.monotonic().
+    """
+
+    def __init__(self, vision_sock, team, robot_id, max_age_s=0.2):
+        self.sock = vision_sock
+        self.team = team
+        self.robot_id = robot_id
+        self.max_age_s = max_age_s
+        self._pose = self._ball = None
+        self._pose_t = self._ball_t = 0.0
+
+    def _update(self):
+        while True:  # drain everything queued, keep the newest data
             try:
-                packet = obs.read_vision(vision_sock, timeout_s=0.005)
+                packet = obs.read_vision(self.sock, timeout_s=0.005)
             except (socket.timeout, TimeoutError, BlockingIOError):
-                break
+                return
+            now = time.monotonic()
             try:
-                # Freshness is tracked here: t_capture is wall-clock, not monotonic.
-                last["pose"] = obs.get_robot_pose(packet, team, robot_id, max_age_s=None)
-                last["t"] = time.monotonic()
+                self._pose = obs.get_robot_pose(
+                    packet, self.team, self.robot_id, max_age_s=None)
+                self._pose_t = now
             except KeyError:
                 pass  # this camera frame did not contain the robot
-        if last["pose"] is None or time.monotonic() - last["t"] > max_age_s:
-            return None
-        return last["pose"]
+            try:
+                self._ball = obs.get_ball_state(packet, max_age_s=None)
+                self._ball_t = now
+            except KeyError:
+                pass
 
-    return get_pose
+    def get_pose(self):
+        """(x_m, y_m, heading_rad), or None when vision is missing or stale."""
+        self._update()
+        if self._pose is None or time.monotonic() - self._pose_t > self.max_age_s:
+            return None
+        return self._pose
+
+    def get_ball(self):
+        """(x_m, y_m), or None when the ball is missing or stale."""
+        self._update()
+        if self._ball is None or time.monotonic() - self._ball_t > self.max_age_s:
+            return None
+        return self._ball
+
+
+def make_pose_getter(vision_sock, team, robot_id, max_age_s=0.2):
+    """Return get_pose() for a socket used only for the robot pose."""
+    return VisionTracker(vision_sock, team, robot_id, max_age_s).get_pose
