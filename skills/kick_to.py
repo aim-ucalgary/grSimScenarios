@@ -15,7 +15,7 @@ from helpers import behaviors as _b
 
 # Auto kick speed assumes the ball decelerates uniformly: v = sqrt(2 * a * d).
 # This is a starting estimate; tune it from the live test (see live_kick_to.py).
-BALL_DECEL_MPS2 = 1.4
+BALL_DECEL_MPS2 = 1.4 #I set it for grsim, we should change it for real robots
 MIN_AUTO_KICK_MPS = 1.5
 MAX_AUTO_KICK_MPS = 6.5   # SSL rules cap shots at 6.5 m/s
 
