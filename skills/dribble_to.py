@@ -1,4 +1,3 @@
-#testing dribbling
 """Skill: dribble the ball to a field position.
 
 Units: metres, seconds, radians. Field frame, counter-clockwise positive.
@@ -26,21 +25,7 @@ DRIBBLER_SPINUP_S = 0.3     # stand still with the dribbler on before moving
 HOLD_SLACK_M = 0.04         # ball may sit this far beyond the kicker face
 HOLD_LATERAL_M = 0.05       # ... and this far off the robot's centreline
 LOST_CYCLES = 5             # consecutive cycles out of hold zone = ball lost
- #Spin in place (after arriving)
-TURN_RATE_RADPS = 0.5       # slow; counter-clockwise positive, negative = clockwise
-TURN_ACCEL_RADPS2 = 1.0     # angular speed ramp-up
-TURN_TIMEOUT_FACTOR = 1.5   # turn time budget = factor * ideal time + 2 s
- 
- 
-def _ball_held(pose, ball, contact):
-    """True if the ball is within the dribbler zone (robot frame: f ahead, l left)."""
-    px, py, ph = pose
-    rel_x, rel_y = ball[0] - px, ball[1] - py
-    f = rel_x * math.cos(ph) + rel_y * math.sin(ph)
-    l = -rel_x * math.sin(ph) + rel_y * math.cos(ph)
-    return f <= contact + HOLD_SLACK_M and abs(l) <= HOLD_LATERAL_M
- 
- 
+
 
 def _dribble_phase(sock, endpoint, robot_id, get_pose, get_ball, *,
                    target, heading, deadline, speed, tolerance_m, rpm):
@@ -88,51 +73,7 @@ def _dribble_phase(sock, endpoint, robot_id, get_pose, get_ball, *,
 
     _b._run(sock, endpoint, robot_id, deadline, step, settle_cycles=1)
     return outcome or "timeout"
-def _turn_with_ball(sock, endpoint, robot_id, get_pose, get_ball, *,
-                    rate_radps, rpm, total_rad=2.0 * math.pi):
-    """Spin in place by total_rad radians with the dribbler on.
- 
-    Sends only an angular velocity, so the robot rotates about its own centre.
-    The turn has its own time budget, since the dribble deadline may be nearly
-    used up by now. Returns True if the full turn was completed with the ball
-    still on the dribbler, False if the ball is lost or the budget runs out.
-    """
-    contact = _b.ROBOT_FRONT_M + _b.BALL_RADIUS_M
-    sign = 1.0 if rate_radps > 0 else -1.0
-    rate = abs(rate_radps)
-    deadline = time.monotonic() + TURN_TIMEOUT_FACTOR * total_rad / rate + 2.0
- 
-    prev_heading = None
-    turned = 0.0
-    w_cap = 0.0
-    lost = 0
-    failed = False
- 
-    def step():
-        nonlocal prev_heading, turned, w_cap, lost, failed
-        pose, ball = get_pose(), get_ball()
-        if pose is None or ball is None:
-            return {"dribbler_rpm": rpm}, False
-        if prev_heading is None:
-            prev_heading = pose[2]
- 
-        lost = 0 if _ball_held(pose, ball, contact) else lost + 1
-        if lost >= LOST_CYCLES:
-            failed = True
-            return None, True
- 
-        turned += sign * _b.angle_error(pose[2], prev_heading)
-        prev_heading = pose[2]
-        if turned >= total_rad:
-            return {"dribbler_rpm": rpm}, True
- 
-        w_cap = min(rate, w_cap + TURN_ACCEL_RADPS2 * _b.CONTROL_PERIOD_S)
-        return {"w": sign * w_cap, "dribbler_rpm": rpm}, False
- 
-    _b._run(sock, endpoint, robot_id, deadline, step, settle_cycles=1)
-    return (not failed) and turned >= total_rad
- 
- 
+
 
 def dribble_to(
     sock, endpoint, robot_id, get_pose, get_ball, *,
@@ -198,8 +139,6 @@ def dribble_to(
             target=target, heading=heading, deadline=deadline,
             speed=speed_mps, tolerance_m=tolerance_m, rpm=dribbler_rpm)
         if outcome == "arrived":
-            _turn_with_ball(sock, endpoint, robot_id, get_pose, get_ball,
-                           rate_radps=TURN_RATE_RADPS, rpm=dribbler_rpm)
             return True
         if outcome == "timeout":
             return False
