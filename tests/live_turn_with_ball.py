@@ -59,7 +59,7 @@ def main():
         print("start robot:", tracker.get_pose(), "ball:", start_ball)
 
         t0 = time.monotonic()
-        ok = turn_with_ball(sock, cmd_endpoint, args.id, tracker.get_pose, tracker.get_ball,
+        ok = turn_with_ball(sock, cmd_endpoint, args.id, tracker.get_pose, tracker.get_ball, x_m=10, y_m=10,
                             turn_rate_radps=args.rate, timeout_s=30.0)
         print(("done" if ok else "FAILED / timed out") + f" after {time.monotonic() - t0:.1f} s")
 

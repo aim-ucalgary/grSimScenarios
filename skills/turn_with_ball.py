@@ -94,15 +94,18 @@ def _dribble_phase(sock, endpoint, robot_id, get_pose, get_ball, *,
     _b._run(sock, endpoint, robot_id, deadline, step, settle_cycles=1)
     return outcome or "timeout"
 
+TURN_MIN_RADPS = 0.15       # slowest speed while closing in on the final heading
+TURN_TAPER_GAIN = 2.0       # w <= gain * remaining_angle, so it slows down at the end
+TURN_DONE_RAD = 0.03        # ~1.7 degrees: close enough to count as facing the target
+
 
 def _turn_with_ball(sock, endpoint, robot_id, get_pose, get_ball, *,
-                    rate_radps, rpm, total_rad=2.0 * math.pi):
-    """Spin in place by total_rad radians with the dribbler on.
+                    rate_radps, rpm, total_rad):
+    """Spin in place by total_rad radians (>0) with the dribbler on.
 
-    Sends only an angular velocity, so the robot rotates about its own centre.
-    The turn has its own time budget, since the dribble deadline may be nearly
-    used up by now. Returns True if the full turn was completed with the ball
-    still on the dribbler, False if the ball is lost or the budget runs out.
+    The sign of rate_radps sets the direction (positive = counter-clockwise).
+    Returns True if the turn was completed with the ball still on the
+    dribbler, False if the ball is lost or the time budget runs out.
     """
     contact = _b.ROBOT_FRONT_M + _b.BALL_RADIUS_M
     sign = 1.0 if rate_radps > 0 else -1.0
@@ -130,59 +133,51 @@ def _turn_with_ball(sock, endpoint, robot_id, get_pose, get_ball, *,
 
         turned += sign * _b.angle_error(pose[2], prev_heading)
         prev_heading = pose[2]
-        if turned >= total_rad:
+        remaining = total_rad - turned
+        if remaining <= TURN_DONE_RAD:
             return {"dribbler_rpm": rpm}, True
 
         w_cap = min(rate, w_cap + TURN_ACCEL_RADPS2 * _b.CONTROL_PERIOD_S)
-        return {"w": sign * w_cap, "dribbler_rpm": rpm}, False
+        w = min(w_cap, max(TURN_MIN_RADPS, TURN_TAPER_GAIN * remaining))
+        return {"w": sign * min(w, rate), "dribbler_rpm": rpm}, False
 
     _b._run(sock, endpoint, robot_id, deadline, step, settle_cycles=1)
-    return (not failed) and turned >= total_rad
-
+    return (not failed) and (total_rad - turned) <= TURN_DONE_RAD
 
 def turn_with_ball(
     sock, endpoint, robot_id, get_pose, get_ball, *,
-    turn_rate_radps=TURN_RATE_RADPS, tolerance_m=0.05,
+    x_m, y_m, turn_rate_radps=TURN_RATE_RADPS, tolerance_m=0.05,
     dribbler_rpm=actuators.DRIBBLER_ON_RPM, max_reacquire=2, timeout_s=20.0,
 ):
-    """Go to the ball, hold it at its coordinates, and spin 360 degrees in place.
+    """Go to the ball, hold it at its coordinates, and turn in place to face (x_m, y_m).
 
     Inputs:
-        sock (socket.socket): UDP command socket.
-        endpoint (tuple[str, int]): Target team address tuple.
-        robot_id (int): Non-negative robot ID.
-        get_pose (callable): Returns (x_m, y_m, heading_rad) or None.
-        get_ball (callable): Returns (x_m, y_m) or None.
-        turn_rate_radps (float, optional): Turning speed in rad/s. Default 0.5.
-            Positive = counter-clockwise, negative = clockwise.
-        tolerance_m (float, optional): How far the ball may be from its original
-            coordinates and still count as "there".
-        dribbler_rpm (float, optional): Dribbler speed command.
-        max_reacquire (int, optional): Times to re-approach after losing the ball.
-        timeout_s (float, optional): Deadline for the approach and dribble, in
-            seconds. Default 20.0s. The 360-degree turn has its own time budget.
+        x_m, y_m (float): Point the robot should end up facing, metres.
+        turn_rate_radps (float, optional): Maximum turning speed in rad/s.
+            Only the magnitude is used; the shortest direction is chosen.
+        (other inputs as before)
 
     Outputs:
-        bool: True if the full 360-degree turn was completed with the ball on the
+        bool: True if the robot ended up facing (x_m, y_m) with the ball on the
             dribbler; False on timeout, repeated ball loss, or missing vision.
-
-    Example:
-        >>> turn_with_ball(sock, endpoint, 0, get_pose, get_ball, turn_rate_radps=0.8)
     """
     if (not isinstance(turn_rate_radps, (int, float)) or isinstance(turn_rate_radps, bool)
             or not math.isfinite(turn_rate_radps) or turn_rate_radps == 0):
         raise ValueError(f"turn_rate_radps must be a non-zero finite number, got {turn_rate_radps!r}")
+    for name, v in (("x_m", x_m), ("y_m", y_m)):
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+            raise ValueError(f"{name} must be a finite number, got {v!r}")
     _b._check_positive("tolerance_m", tolerance_m)
     _b._check_positive("dribbler_rpm", dribbler_rpm)
     _b._check_positive("timeout_s", timeout_s)
     if not isinstance(max_reacquire, int) or isinstance(max_reacquire, bool) or max_reacquire < 0:
         raise ValueError(f"max_reacquire must be a non-negative int, got {max_reacquire!r}")
 
+    look_at = (float(x_m), float(y_m))
     deadline = time.monotonic() + timeout_s
     target = None  # the ball's coordinates, fixed at the first sighting
 
     for _ in range(max_reacquire + 1):
-        # Wait (stationary) for vision of both the robot and the ball.
         pose, ball = get_pose(), get_ball()
         while pose is None or ball is None:
             if time.monotonic() >= deadline:
@@ -197,15 +192,13 @@ def turn_with_ball(
             return False
 
         if math.hypot(target[0] - ball[0], target[1] - ball[1]) > tolerance_m:
-            # Ball has moved: line up behind it to carry it back (as dribble_to does).
             heading = math.atan2(target[1] - ball[1], target[0] - ball[0])
         else:
-            # Ball is where it started: go straight at it from where we are.
             heading = math.atan2(ball[1] - pose[1], ball[0] - pose[0])
 
         if not _b.approach_ball(sock, endpoint, robot_id, get_pose, get_ball,
                                 approach_heading_rad=heading, timeout_s=remaining):
-            continue  # try again if time remains
+            continue
 
         outcome = _dribble_phase(
             sock, endpoint, robot_id, get_pose, get_ball,
@@ -216,9 +209,22 @@ def turn_with_ball(
         if outcome == "lost":
             continue
 
-        # Ball is secured at its coordinates: spin a full circle.
+        # Ball is secured: work out how far to turn to face the look-at point.
+        pose = get_pose()
+        while pose is None:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_b.CONTROL_PERIOD_S)
+            pose = get_pose()
+
+        desired = math.atan2(look_at[1] - pose[1], look_at[0] - pose[0])
+        delta = _b.angle_error(desired, pose[2])   # signed, shortest, in (-pi, pi]
+        if abs(delta) <= TURN_DONE_RAD:
+            return True                            # already facing it
+
+        rate = math.copysign(abs(turn_rate_radps), delta)
         if _turn_with_ball(sock, endpoint, robot_id, get_pose, get_ball,
-                           rate_radps=turn_rate_radps, rpm=dribbler_rpm):
+                           rate_radps=rate, rpm=dribbler_rpm, total_rad=abs(delta)):
             return True
         # Ball lost during the turn: loop re-acquires it and tries again.
 
