@@ -37,7 +37,7 @@ ROBOT_FRONT_M = 0.08     # robot centre to kicker face
 BALL_RADIUS_M = 0.0215
 STAGING_DIST_M = 0.30    # line up this far behind the ball
 CLEARANCE_M = 0.25       # pass the ball at least this far away
-CREEP_SPEED_MPS = 0.3    # final approach speed
+CREEP_SPEED_MPS = 1.0    # final approach speed
 CREEP_LATERAL_M = 0.05   # re-stage if the ball drifts this far off line
 
 # Kicking
