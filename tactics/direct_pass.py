@@ -11,7 +11,10 @@ incoming ball, and waits. As soon as the ball has been kicked, the receiver
 switches to receive_ball, which intercepts and catches it. If the ball ends up
 held by the dribbler, the ball's final position is the target point.
 
-Note: "pass" is a Python keyword, so the function is called pass_ball.
+With chip=True the pass is chipped: the ball is aimed to land CHIP_LANDING_SHORT_M
+before the receiver, so it is rolling on the ground by the time it arrives and
+receive_ball can catch it. Chip passes are useful to clear obstacles; they are
+less precise than ground passes.
 """
 
 import math
@@ -21,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from helpers import behaviors as _b
 from skills.kick_to import kick_to, BALL_DECEL_MPS2, MAX_AUTO_KICK_MPS
+from skills.chip_kick_to import chip_kick_to
 from skills.go_to_point import go_to_point  # adjust to where go_to_point lives
 from skills.receive_ball import receive_ball, CAPTURE_OFFSET_M
 
@@ -29,6 +33,10 @@ from skills.receive_ball import receive_ball, CAPTURE_OFFSET_M
 PASS_ARRIVAL_SPEED_MPS = 1.5
 MIN_PASS_KICK_MPS = 1.0
 MIN_PASS_DISTANCE_M = 0.5
+# Chip passes: land this far before the receiver and let the ball roll the rest.
+# Tune live (depends on the sim's bounce / the real ball and floor).
+CHIP_LANDING_SHORT_M = 1.0
+MIN_CHIP_LANDING_M = 0.5   # minimum chip flight distance
 # go_to_point can't be interrupted, so the receiver calls it in short chunks and
 # checks for the kick in between. Smaller = reacts faster, but more start/stop.
 POSITION_CHUNK_S = 0.4
@@ -48,7 +56,7 @@ def direct_pass(
     sock, endpoint, passer_id, receiver_id,
     get_pose_passer, get_pose_receiver, get_ball, *,
     target_x_m, target_y_m,
-    arrival_speed_mps=PASS_ARRIVAL_SPEED_MPS, timeout_s=25.0,
+    arrival_speed_mps=PASS_ARRIVAL_SPEED_MPS, chip=False, timeout_s=25.0,
 ):
     """Pass the ball from passer to receiver so it ends at (target_x_m, target_y_m).
 
@@ -62,7 +70,9 @@ def direct_pass(
         get_ball (callable): Returns (x_m, y_m) or None.
         target_x_m (float): X of the point where the ball should be received, metres.
         target_y_m (float): Y of the point where the ball should be received, metres.
-        arrival_speed_mps (float, optional): Ball speed wanted at the receiver.
+        arrival_speed_mps (float, optional): Ball speed wanted at the receiver
+            (ground passes only; chip passes use the chip speed estimate).
+        chip (bool, optional): Chip the ball instead of rolling it.
         timeout_s (float, optional): Overall deadline in seconds. Default is 25.0s.
 
     Outputs:
@@ -70,10 +80,11 @@ def direct_pass(
 
     Raises:
         ValueError: On invalid arguments, identical robot IDs, or a target too
-            close to the ball.
+            close to the ball (for a chip, closer than
+            CHIP_LANDING_SHORT_M + MIN_CHIP_LANDING_M).
 
     Example:
-        >>> pass_ball(sock, endpoint, 0, 1, pose0, pose1, get_ball,
+        >>> direct_pass(sock, endpoint, 0, 1, pose0, pose1, get_ball,
         ...           target_x_m=2.0, target_y_m=1.0)
 
     Thread safety: get_pose_*/get_ball are called from two threads at once, so
@@ -106,7 +117,16 @@ def direct_pass(
     recv_x = target_x_m + CAPTURE_OFFSET_M * ux
     recv_y = target_y_m + CAPTURE_OFFSET_M * uy
     recv_heading = math.atan2(-uy, -ux)
-    speed = pass_kick_speed(dist, arrival_speed_mps)
+    if chip:
+        land_dist = dist - CHIP_LANDING_SHORT_M
+        if land_dist < MIN_CHIP_LANDING_M:
+            raise ValueError(
+                f"chip pass needs the target >= {CHIP_LANDING_SHORT_M + MIN_CHIP_LANDING_M:.1f} m "
+                f"from the ball, got {dist:.2f} m")
+        aim_x = ball[0] + ux * land_dist
+        aim_y = ball[1] + uy * land_dist
+    else:
+        speed = pass_kick_speed(dist, arrival_speed_mps)
 
     kicked = threading.Event()
     failed = threading.Event()
@@ -114,10 +134,15 @@ def direct_pass(
     def passer_task():
         ok = False
         try:
-            ok = kick_to(sock, endpoint, passer_id, get_pose_passer, get_ball,
-                         target_x_m=target_x_m, target_y_m=target_y_m,
-                         kick_speed_mps=speed,
-                         timeout_s=max(0.1, deadline - time.monotonic()))
+            remaining = max(0.1, deadline - time.monotonic())
+            if chip:
+                ok = chip_kick_to(sock, endpoint, passer_id, get_pose_passer, get_ball,
+                                  target_x_m=aim_x, target_y_m=aim_y,
+                                  timeout_s=remaining)
+            else:
+                ok = kick_to(sock, endpoint, passer_id, get_pose_passer, get_ball,
+                             target_x_m=target_x_m, target_y_m=target_y_m,
+                             kick_speed_mps=speed, timeout_s=remaining)
             return ok
         finally:
             (kicked if ok else failed).set()

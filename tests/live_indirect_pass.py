@@ -5,6 +5,7 @@ Usage (from the repo root, grSim already running):
         --tx 2.0 --ty 0.0 --vx 0.5 --vy 1.0
 Add --auto-via to let the tactic use the midpoint between ball and target.
 Add --no-teleport to use the current robot/ball positions.
+Add --chip1 / --chip2 to chip the first / second pass.
 Add --arrival 2.0 to change the wanted ball speed at each receiver (m/s).
 """
 
@@ -42,6 +43,8 @@ def main():
                     help="ignore --vx/--vy; use midpoint of ball and target")
     ap.add_argument("--arrival", type=float, default=None,
                     help="wanted ball speed at each receiver, m/s; default = tactic's")
+    ap.add_argument("--chip1", action="store_true", help="chip the passer -> middle pass")
+    ap.add_argument("--chip2", action="store_true", help="chip the middle -> receiver pass")
     ap.add_argument("--host", default="127.0.0.1")
     # Start positions (used unless --no-teleport).
     ap.add_argument("--px", type=float, default=-2.0)
@@ -117,6 +120,8 @@ def main():
             kwargs.update(via_x_m=via[0], via_y_m=via[1])
         if args.arrival is not None:
             kwargs["arrival_speed_mps"] = args.arrival
+
+        kwargs.update(chip_leg1=args.chip1, chip_leg2=args.chip2)
 
         t0 = time.monotonic()
         ok = indirect_pass(sock, cmd_endpoint, args.passer, args.middle, args.receiver,

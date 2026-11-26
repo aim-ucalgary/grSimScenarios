@@ -4,6 +4,7 @@ Units: metres, seconds, radians. Field frame, counter-clockwise positive.
 
 Leg 1: passer -> middle robot, received at the via point (direct_pass).
 Leg 2: middle robot -> receiver, received at the target point (direct_pass).
+Either leg can be chipped (chip_leg1 / chip_leg2).
 
 To keep the whole thing fast, the final receiver does not wait for leg 1 to
 finish: while leg 1 is in flight it already drives to, and holds, the spot where
@@ -19,7 +20,8 @@ import threading
 from helpers import behaviors as _b
 from skills.go_to_point import go_to_point  # adjust to where go_to_point lives
 from skills.receive_ball import CAPTURE_OFFSET_M
-from tactics.direct_pass import direct_pass  # adjust to where direct_pass lives
+from tactics.direct_pass import (  # adjust to where direct_pass lives
+    direct_pass, CHIP_LANDING_SHORT_M, MIN_CHIP_LANDING_M)
 
 MIN_LEG_DISTANCE_M = 0.5   # same minimum as direct_pass
 POSITION_CHUNK_S = 0.4     # go_to_point is not interruptible: call it in short chunks
@@ -29,7 +31,7 @@ def indirect_pass(
     sock, endpoint, passer_id, middle_id, receiver_id,
     get_pose_passer, get_pose_middle, get_pose_receiver, get_ball, *,
     target_x_m, target_y_m, via_x_m=None, via_y_m=None,
-    arrival_speed_mps=None, timeout_s=40.0,
+    arrival_speed_mps=None, chip_leg1=False, chip_leg2=False, timeout_s=40.0,
 ):
     """Pass passer -> middle -> receiver so the ball ends at (target_x_m, target_y_m).
 
@@ -51,6 +53,8 @@ def indirect_pass(
             the target is used.
         arrival_speed_mps (float, optional): Ball speed wanted at each receiver.
             If None, direct_pass's default is used.
+        chip_leg1 (bool, optional): Chip the passer -> middle pass.
+        chip_leg2 (bool, optional): Chip the middle -> receiver pass.
         timeout_s (float, optional): Overall deadline in seconds. Default is 40.0s.
 
     Outputs:
@@ -87,9 +91,13 @@ def indirect_pass(
 
     leg1 = math.hypot(via_x_m - ball[0], via_y_m - ball[1])
     leg2 = math.hypot(target_x_m - via_x_m, target_y_m - via_y_m)
-    if leg1 < MIN_LEG_DISTANCE_M or leg2 < MIN_LEG_DISTANCE_M:
+    chip_min = CHIP_LANDING_SHORT_M + MIN_CHIP_LANDING_M
+    min1 = chip_min if chip_leg1 else MIN_LEG_DISTANCE_M
+    min2 = chip_min if chip_leg2 else MIN_LEG_DISTANCE_M
+    if leg1 < min1 or leg2 < min2:
         raise ValueError(
-            f"legs are {leg1:.2f} m and {leg2:.2f} m; each must be >= {MIN_LEG_DISTANCE_M} m")
+            f"legs are {leg1:.2f} m and {leg2:.2f} m; need >= {min1:.1f} m and >= {min2:.1f} m "
+            f"(chip legs need >= {chip_min:.1f} m)")
 
     # Where the final receiver should wait: dribbler face on the target, facing
     # the via point (where the ball will be kicked from).
@@ -117,7 +125,7 @@ def indirect_pass(
                 sock, endpoint, passer_id, middle_id,
                 get_pose_passer, get_pose_middle, get_ball,
                 target_x_m=via_x_m, target_y_m=via_y_m,
-                timeout_s=max(0.1, deadline - time.monotonic()), **extra)
+                chip=chip_leg1, timeout_s=max(0.1, deadline - time.monotonic()), **extra)
         finally:
             leg1_done.set()
         prep_future.result()  # join (at most one chunk) and surface any error
@@ -133,4 +141,4 @@ def indirect_pass(
         sock, endpoint, middle_id, receiver_id,
         get_pose_middle, get_pose_receiver, get_ball,
         target_x_m=target_x_m, target_y_m=target_y_m,
-        timeout_s=remaining, **extra))
+        chip=chip_leg2, timeout_s=remaining, **extra))
