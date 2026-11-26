@@ -1,2 +1,3 @@
 from .direct_pass import direct_pass
-__all__ = ["direct_pass"]
+from .indirect_pass import indirect_pass
+__all__ = ["direct_pass", "indirect_pass"]
