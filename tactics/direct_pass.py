@@ -44,7 +44,7 @@ def pass_kick_speed(distance_m, arrival_speed_mps):
     return max(MIN_PASS_KICK_MPS, min(MAX_AUTO_KICK_MPS, v0))
 
 
-def pass_ball(
+def direct_pass(
     sock, endpoint, passer_id, receiver_id,
     get_pose_passer, get_pose_receiver, get_ball, *,
     target_x_m, target_y_m,

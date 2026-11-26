@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO_ROOT / "grSim" / "pb"))   # generated *_pb2.py files
 
 from helpers import communication as com
 from helpers import setup
-from tactics import pass_ball  # make sure tactics/__init__.py exports it
+from tactics import direct_pass  # make sure tactics/__init__.py exports it
 from skills.vision import VisionTracker, open_vision_socket
 
 CONTROL_PORT = 10300
@@ -51,7 +51,7 @@ def main():
     ctl_endpoint = (args.host, CONTROL_PORT)
     sock = com.open_socket()
 
-    # Two vision sockets so the two threads inside pass_ball never compete for
+    # Two vision sockets so the two threads inside direct_pass never compete for
     # packets: tracker 1 serves the passer pose AND the ball (always under a
     # lock), tracker 2 serves only the receiver pose (receiver thread only).
     vision1, vision2 = open_vision_socket(), open_vision_socket()
@@ -94,7 +94,7 @@ def main():
 
         kwargs = {} if args.arrival is None else {"arrival_speed_mps": args.arrival}
         t0 = time.monotonic()
-        ok = pass_ball(sock, cmd_endpoint, args.passer, args.receiver,
+        ok = direct_pass(sock, cmd_endpoint, args.passer, args.receiver,
                        get_pose_passer, get_pose_receiver, get_ball,
                        target_x_m=args.tx, target_y_m=args.ty,
                        timeout_s=args.timeout, **kwargs)
