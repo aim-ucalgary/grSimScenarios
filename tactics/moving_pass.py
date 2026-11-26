@@ -227,7 +227,7 @@ def plan_moving_pass(ball_xy, target_xy, enemies, *, t_prep_s=0.0, allow_chip=Tr
 def moving_pass(
     sock, endpoint, passer_id, receiver_id,
     get_pose_passer, get_pose_receiver, get_ball, get_enemies, *,
-    target_x_m=None, target_y_m=None, allow_chip=True, require_safe=False,
+    target_x_m=None, target_y_m=None, allow_chip=True, require_safe=True,
     enemy_max_speed_mps=ENEMY_MAX_SPEED_MPS, timeout_s=25.0,
 ):
     """Pass the ball so that moving enemy robots cannot intercept it.
