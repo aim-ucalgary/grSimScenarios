@@ -7,8 +7,10 @@ Set --goal-x / --goal-half-width for your field (Division B goals are 1.0 m wide
 -> 0.5, Division A 1.8 m wide -> 0.9).
 
 Shots are launched with teleport_ball plus a velocity from a random point in front
-of the goal, aimed at a random point on or slightly outside the goal. Only shots
-aimed clearly inside the posts count as "on target"; the score is saves / on target.
+of the goal, aimed at a random point inside the posts (ON_TARGET_MARGIN_M clear of
+them). With --off-target-prob P, a fraction P of the shots is instead aimed just
+outside the posts; those are reported as "off target" and not scored. The score is
+saves / on-target shots.
 --clear-test places the ball at rest in front of the goal and checks that the goalie
 kicks it away without conceding.
 """
@@ -46,6 +48,8 @@ def main():
     ap.add_argument("--shots", type=int, default=6)
     ap.add_argument("--speed-min", type=float, default=2.5, help="shot speed range, m/s")
     ap.add_argument("--speed-max", type=float, default=5.0)
+    ap.add_argument("--off-target-prob", type=float, default=0.0,
+                    help="fraction of shots aimed just outside the posts (default 0: all on target)")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--clear-test", action="store_true",
                     help="instead of shots, test clearing a ball resting in front of the goal")
@@ -129,8 +133,13 @@ def main():
             for n in range(1, args.shots + 1):
                 dist = random.uniform(2.0, 3.5)
                 sx, sy = args.goal_x + inward * dist, random.uniform(-1.5, 1.5)
-                aim_y = args.goal_y + random.uniform(-(args.goal_half_width + 0.2),
-                                                     args.goal_half_width + 0.2)
+                if random.random() < args.off_target_prob:
+                    side = random.choice((-1.0, 1.0))
+                    aim_y = args.goal_y + side * random.uniform(args.goal_half_width + 0.05,
+                                                                args.goal_half_width + 0.3)
+                else:
+                    inner = args.goal_half_width - ON_TARGET_MARGIN_M
+                    aim_y = args.goal_y + random.uniform(-inner, inner)
                 speed = random.uniform(args.speed_min, args.speed_max)
                 dx, dy = args.goal_x - sx, aim_y - sy
                 d = math.hypot(dx, dy)

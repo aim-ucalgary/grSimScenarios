@@ -4,15 +4,22 @@ Units: metres, seconds, radians. Field frame, counter-clockwise positive.
 
 Three behaviours, chosen every control cycle:
 
-1. Shot: if the ball is moving fast toward the goal line and will reach it
-   inside the posts (using the same uniform-deceleration ball model as kick_to),
-   move to the crossing point just in front of the line and block there.
+1. Shot: if the ball is moving toward the goal line and will reach it inside the
+   posts (using the same uniform-deceleration ball model as kick_to), slide to
+   where its path crosses the line (just in front of it) and block there. Shots
+   do not turn while doing it, and even slow, decelerating balls still count as
+   shots (the old cut-off made the goalie give up on a ball that slowed down).
 2. Idle: otherwise stand on the line from the goal centre to the ball, a short
    way out ("arc" defence), so the angle to both posts is covered.
 3. Clear: if the ball comes to rest in front of the goal, kick it away toward
    the side it is on (kick_to), then go back to defending.
 
-The goalie always faces the ball. It never leaves the posts' width.
+The goalie faces the ball, except while blocking a shot or when the ball is
+within TURN_FREEZE_GAP_M of its body: then it does not turn at all (a ball at
+contact makes the "face the ball" angle swing wildly and the robot would rotate
+away from the shot, and rotation also uses up wheel speed that the sideways
+move needs). It never
+leaves the posts' width.
 """
 
 import math
@@ -26,8 +33,11 @@ GOALIE_DEPTH_M = 0.15       # centre this far in front of the goal line (minimum
 GOALIE_ARC_M = 0.5          # idle distance from the goal centre toward the ball
 GOALIE_KP = 8.0
 GOALIE_MAX_SPEED_MPS = 2.5
-SHOT_MIN_MPS = 0.8          # ball slower than this is not treated as a shot
+SHOT_MIN_MPS = 0.3          # ball slower than this is not treated as a shot
 SHOT_MARGIN_M = 0.10        # also defend shots this far outside the posts
+ROBOT_RADIUS_M = 0.09
+BALL_RADIUS_M = 0.0215
+TURN_FREEZE_GAP_M = 0.05    # ball closer than this to the robot's body: stop turning
 
 CLEAR_MIN_M = 0.30          # ball must be this far from the goal line to be cleared
 CLEAR_MAX_M = 1.20
@@ -42,10 +52,16 @@ _ZERO = {"vx": 0.0, "vy": 0.0, "w": 0.0}
 
 
 def goalie_target(ball, vel, goal_x, goal_y, half_width, inward_sign):
-    """Where the goalie should stand: ((x, y), mode) with mode 'shot' or 'idle'."""
+    """Where the goalie should stand: ((x, y), mode) with mode 'shot' or 'idle'.
+
+    A shot is met where the ball's path crosses the line (just in front of it).
+    """
     depth_x = goal_x + inward_sign * GOALIE_DEPTH_M
     if ball is None:
         return (depth_x, goal_y), "idle"
+
+    def clamp_y(y):
+        return max(goal_y - half_width, min(goal_y + half_width, y))
 
     speed = math.hypot(*vel)
     if speed >= SHOT_MIN_MPS:
@@ -55,8 +71,7 @@ def goalie_target(ball, vel, goal_x, goal_y, half_width, inward_sign):
             if speed * speed >= 2.0 * BALL_DECEL_MPS2 * s_line:    # it gets there
                 y_cross = ball[1] + uy * s_line
                 if abs(y_cross - goal_y) <= half_width + SHOT_MARGIN_M:
-                    y = max(goal_y - half_width, min(goal_y + half_width, y_cross))
-                    return (depth_x, y), "shot"
+                    return (depth_x, clamp_y(y_cross)), "shot"       # block at the crossing point
 
     dx, dy = ball[0] - goal_x, ball[1] - goal_y
     dist = math.hypot(dx, dy)
@@ -67,7 +82,7 @@ def goalie_target(ball, vel, goal_x, goal_y, half_width, inward_sign):
     y = goal_y + dy / dist * d
     if (x - goal_x) * inward_sign < GOALIE_DEPTH_M:
         x = depth_x
-    return (x, max(goal_y - half_width, min(goal_y + half_width, y))), "idle"
+    return (x, clamp_y(y)), "idle"
 
 
 def goalie_defend(
@@ -146,16 +161,24 @@ def goalie_defend(
             else:
                 state["still_since"] = None
 
-        (tx, ty), _mode = goalie_target(b, vel, goal_x_m, goal_y_m,
-                                        goal_half_width_m, inward_sign)
+        (tx, ty), mode = goalie_target(b, vel, goal_x_m, goal_y_m, goal_half_width_m,
+                                       inward_sign)
         vx, vy = GOALIE_KP * (tx - pose[0]), GOALIE_KP * (ty - pose[1])
         norm = math.hypot(vx, vy)
         if norm > GOALIE_MAX_SPEED_MPS:
             vx, vy = vx * GOALIE_MAX_SPEED_MPS / norm, vy * GOALIE_MAX_SPEED_MPS / norm
-        face = (math.atan2(b[1] - pose[1], b[0] - pose[0]) if b is not None
-                else inward_heading)
-        w = max(-_b.MAX_ANGULAR_RADPS, min(
-            _b.MAX_ANGULAR_RADPS, _b.KP_ANGULAR * _b.angle_error(face, pose[2])))
+        if b is None:
+            face, gap = inward_heading, math.inf
+        else:
+            face = math.atan2(b[1] - pose[1], b[0] - pose[0])
+            gap = math.hypot(b[0] - pose[0], b[1] - pose[1]) - ROBOT_RADIUS_M - BALL_RADIUS_M
+        if mode == "shot" or gap < TURN_FREEZE_GAP_M:
+            # Blocking a shot: all wheel speed goes to moving (turning would eat into it).
+            # Ball at contact: the bearing swings wildly, so stop turning.
+            w = 0.0
+        else:
+            w = max(-_b.MAX_ANGULAR_RADPS, min(
+                _b.MAX_ANGULAR_RADPS, _b.KP_ANGULAR * _b.angle_error(face, pose[2])))
         return {"vx": vx, "vy": vy, "w": w}, False
 
     while time.monotonic() < deadline:
